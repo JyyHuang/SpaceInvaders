@@ -2,46 +2,17 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <cstdint>
+#include "shaders.h"
+#include "game.h"
+#include "sprites.h"
 
 using namespace std; 
 
 bool game_running = false;
 int player_dir = 0;
 bool shoot = false;
-static const unsigned int MAX_PROJECTILES = 128;
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
-{
-    glViewport(0, 0, width, height);
-}
-
-void validate_shader(GLuint shader, const char *file = 0){
-    static const unsigned int BUFFER_SIZE = 512;
-    char buffer[BUFFER_SIZE];
-    GLsizei length = 0;
-
-    glGetShaderInfoLog(shader, BUFFER_SIZE, &length, buffer);
-
-    if(length>0){
-        cout << "Shader " << shader << "compiler error: " << buffer << endl;
-    }
-}
-
-bool validate_program(GLuint program){
-    static const GLsizei BUFFER_SIZE = 512;
-    GLchar buffer[BUFFER_SIZE];
-    GLsizei length = 0;
-
-    glGetProgramInfoLog(program, BUFFER_SIZE, &length, buffer);
-
-    if(length>0){
-        cout << "Program " << program << "link error: " << buffer;
-        return false;
-    }
-
-    return true;
-}
-
+// key input function
 void press_key(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
     switch(key)
@@ -84,171 +55,7 @@ void press_key(GLFWwindow* window, int key, int scancode, int action, int mods)
     }
 }
 
-struct Buffer
-{
-    size_t width, height;
-    uint32_t* data;
-};
-
-struct Sprite
-{
-    size_t width, height;
-    uint8_t* data;
-};
-
-
-struct Alien
-{
-    size_t x,y;
-    uint8_t type;
-};
-
-struct Projectile
-{
-    size_t x,y;
-    int dir;
-};
-
-struct Player
-{
-    size_t x,y;
-    size_t lives;
-};
-
-struct Game
-{
-    size_t width, height;
-    size_t num_aliens;
-    size_t num_projectiles;
-    Alien* aliens;
-    Player player;
-    Projectile projectiles[MAX_PROJECTILES];
-};
-
-struct SpriteAnimation
-{
-    bool loop;
-    size_t num_frames;
-    size_t frame_duration;
-    size_t time;
-    Sprite** frames;
-};
-
-enum AlienType: uint8_t
-{
-    ALIEN_DEAD = 0,
-    ALIEN_TYPE_A = 1,
-};
-
-void buffer_clear(Buffer* buffer, uint32_t color)
-{
-    for(size_t i = 0; i < buffer->width * buffer->height; i++)
-    {
-        buffer->data[i] = color;
-    }
-}
-
-// Goes over sprite and draws pixels at coordinates (x,y)
-void buffer_draw_sprite(Buffer* buffer, const Sprite& sprite, size_t x, size_t y, uint32_t color)
-{
-    for(size_t xi = 0; xi < sprite.width; xi++)
-    {
-        for(size_t yi = 0; yi < sprite.height; yi++)
-        {
-            if(sprite.data[yi * sprite.width + xi] &&
-               (sprite.height - 1 + y - yi) < buffer->height &&
-               (x + xi) < buffer->width)
-            {
-                buffer->data[(sprite.height - 1 + y - yi) * buffer->width + (x + xi)] = color;
-            }
-        }
-    }
-}
-
-void buffer_draw_text(Buffer* buffer, const Sprite& text_sprite_sheet,const char* text, size_t x, size_t y, uint32_t color)
-{
-    size_t stride = text_sprite_sheet.width * text_sprite_sheet.height;
-    Sprite sprite = text_sprite_sheet;
-    for(const char* ch = text; *ch != '\0'; ch++)
-    {
-        char character = *ch - 32;
-        if(character < 0 || character >= 65) continue;
-
-        sprite.data = text_sprite_sheet.data + character * stride;
-        buffer_draw_sprite(buffer, sprite, x, y, color);
-        x += sprite.width + 1;
-    }
-}
-
-uint32_t rgba_to_uint32(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
-{
-    return (r << 24) | (g << 16) | (b << 8) | a;
-}
-
-void create_shaders()
-{
-    // Create shaders
-    static const char* fragment_shader =
-        "\n"
-        "#version 330\n"
-        "\n"
-        "uniform sampler2D buffer;\n"
-        "noperspective in vec2 TexCoord;\n"
-        "\n"
-        "out vec3 outColor;\n"
-        "\n"
-        "void main(void){\n"
-        "    outColor = texture(buffer, TexCoord).rgb;\n"
-        "}\n";
-
-    static const char* vertex_shader =
-        "\n"
-        "#version 330\n"
-        "\n"
-        "noperspective out vec2 TexCoord;\n"
-        "\n"
-        "void main(void){\n"
-        "\n"
-        "    TexCoord.x = (gl_VertexID == 2)? 2.0: 0.0;\n"
-        "    TexCoord.y = (gl_VertexID == 1)? 2.0: 0.0;\n"
-        "    \n"
-        "    gl_Position = vec4(2.0 * TexCoord - 1.0, 0.0, 1.0);\n"
-        "}\n";
-
-    GLuint shader_id = glCreateProgram();
-
-    {
-        //Create vertex shader
-        GLuint vshader = glCreateShader(GL_VERTEX_SHADER);
-
-        glShaderSource(vshader, 1, &vertex_shader, 0);
-        glCompileShader(vshader);
-        validate_shader(vshader, vertex_shader);
-        glAttachShader(shader_id, vshader);
-
-        glDeleteShader(vshader);
-    }
-
-    {
-        //Create fragment shader
-        GLuint fshader = glCreateShader(GL_FRAGMENT_SHADER);
-
-        glShaderSource(fshader, 1, &fragment_shader, 0);
-        glCompileShader(fshader);
-        validate_shader(fshader, fragment_shader);
-        glAttachShader(shader_id, fshader);
-
-        glDeleteShader(fshader);
-    }
-
-    glLinkProgram(shader_id);
-
-    glUseProgram(shader_id);
-
-    GLint location = glGetUniformLocation(shader_id, "buffer");
-    glUniform1i(location, 0);
-}
-
+// helper function to detect when bullets hit
 bool hit_alien(
     const Sprite& sprite, size_t sprite_x, size_t sprite_y,
     const Sprite& other_sprite, size_t other_sprite_x, size_t other_sprite_y)
@@ -330,152 +137,22 @@ int main(int argc, char* argv[])
 
     glBindVertexArray(fullscreen_triangle_vao);
 
+    // Sprites in sprites.h
+    // Alien Sprites
     Sprite alien_sprites[2];
-    // Alien Sprite type A
-    alien_sprites[0].width = 11;
-    alien_sprites[0].height = 8;
-    alien_sprites[0].data = new uint8_t[88]
-    {
-        0,0,0,0,0,0,0,0,0,0,0, // ...........
-        0,0,0,0,0,0,0,0,0,0,0, // ...........
-        0,0,1,1,1,1,1,1,1,0,0, // ..@@@@@@@..
-        0,1,1,0,1,1,1,0,1,1,0, // .@@.@@@.@@.
-        1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
-        1,0,1,1,1,1,1,1,1,0,1, // @.@@@@@@@.@
-        1,0,1,0,0,0,0,0,1,0,1, // @.@.....@.@
-        0,0,0,1,0,0,0,1,0,0,0  // ...@...@...
-    };
-    // Alien Sprite type A animated
-    alien_sprites[1].width = 11;
-    alien_sprites[1].height = 8;
-    alien_sprites[1].data = new uint8_t[88]
-    {
-        0,0,0,0,0,0,0,0,0,0,0, // ...........
-        1,0,0,0,0,0,0,0,0,0,1, // @.........@
-        1,0,1,1,1,1,1,1,1,0,1, // @.@@@@@@@.@
-        1,1,1,0,1,1,1,0,1,1,1, // @@@.@@@.@@@
-        1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
-        0,1,1,1,1,1,1,1,1,1,0, // .@@@@@@@@@.
-        0,0,1,0,0,0,0,0,1,0,0, // ..@.....@..
-        0,1,0,0,0,0,0,0,0,1,0  // .@.......@.
-    };
+    alien_sprites[0] = create_alien_sprite_A();
+    alien_sprites[1] = create_alien_sprite_animated_A();
 
-    Sprite alien_sprite_dead;
-    alien_sprite_dead.width = 13;
-    alien_sprite_dead.height = 7;
-    alien_sprite_dead.data = new uint8_t[91]
-    {
-        0,1,0,0,1,0,0,0,1,0,0,1,0, // .@..@...@..@.
-        0,0,1,0,0,1,0,1,0,0,1,0,0, // ..@..@.@..@..
-        0,0,0,1,0,0,0,0,0,1,0,0,0, // ...@.....@...
-        1,1,0,0,0,0,0,0,0,0,0,1,1, // @@.........@@
-        0,0,0,1,0,0,0,0,0,1,0,0,0, // ...@.....@...
-        0,0,1,0,0,1,0,1,0,0,1,0,0, // ..@..@.@..@..
-        0,1,0,0,1,0,0,0,1,0,0,1,0  // .@..@...@..@.
-    };
+    // Death Sprite
+    Sprite alien_sprite_dead = create_dead_sprite();
 
     // Player sprite
-    Sprite player_sprite;
-    player_sprite.width = 11;
-    player_sprite.height = 8;
-    player_sprite.data = new uint8_t[88]
-    {
-        0,0,0,0,0,1,0,0,0,0,0, // .....@.....
-        0,0,0,0,1,1,1,0,0,0,0, // ....@@@....
-        0,0,0,0,1,1,1,0,0,0,0, // ....@@@....
-        0,1,1,1,1,1,1,1,1,1,0, // .@@@@@@@@@.
-        1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
-        1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
-        1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
-        0,1,1,1,1,1,1,1,1,1,0, // .@@@@@@@@@.
-    };
+    Sprite player_sprite = create_player_sprite();
 
     // Projectile sprite
-    Sprite projectile_sprite;
-    projectile_sprite.width = 1;
-    projectile_sprite.height = 3;
-    projectile_sprite.data = new uint8_t[3]
-    {
-        1, // @
-        1, // @
-        1, // @
-    };
+    Sprite projectile_sprite = create_projectile_sprite();
 
-    Sprite text_sprite_sheet;
-    text_sprite_sheet.width = 5;
-    text_sprite_sheet.height = 7;
-    text_sprite_sheet.data = new uint8_t[65 * 35]
-    {
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,
-        0,1,0,1,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,1,0,1,0,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,0,1,0,1,0,
-        0,0,1,0,0,0,1,1,1,0,1,0,1,0,0,0,1,1,1,0,0,0,1,0,1,0,1,1,1,0,0,0,1,0,0,
-        1,1,0,1,0,1,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,1,0,1,0,1,1,
-        0,1,1,0,0,1,0,0,1,0,1,0,0,1,0,0,1,1,0,0,1,0,0,1,0,1,0,0,0,1,0,1,1,1,1,
-        0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,
-        1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,
-        0,0,1,0,0,1,0,1,0,1,0,1,1,1,0,0,0,1,0,0,0,1,1,1,0,1,0,1,0,1,0,0,1,0,0,
-        0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,1,1,1,1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
-        0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,
-
-        0,1,1,1,0,1,0,0,0,1,1,0,0,1,1,1,0,1,0,1,1,1,0,0,1,1,0,0,0,1,0,1,1,1,0,
-        0,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0,
-        0,1,1,1,0,1,0,0,0,1,0,0,0,0,1,0,0,1,1,0,0,1,0,0,0,1,0,0,0,0,1,1,1,1,1,
-        1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
-        0,0,0,1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,0,1,1,1,1,1,0,0,0,1,0,0,0,0,1,0,
-        1,1,1,1,1,1,0,0,0,0,1,1,1,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
-        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
-        1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,
-        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
-        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
-
-        0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,
-        0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,
-        0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,
-        1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,
-        0,1,1,1,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,
-        0,1,1,1,0,1,0,0,0,1,1,0,1,0,1,1,1,0,1,1,1,0,1,0,0,1,0,0,0,1,0,1,1,1,0,
-
-        0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,
-        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,
-        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,1,1,0,
-        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,
-        1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1,
-        1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,
-        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,1,1,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
-        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,
-        0,1,1,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0,
-        0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
-        1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,1,0,0,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1,
-        1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1,
-        1,0,0,0,1,1,1,0,1,1,1,0,1,0,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,
-        1,0,0,0,1,1,0,0,0,1,1,1,0,0,1,1,0,1,0,1,1,0,0,1,1,1,0,0,0,1,1,0,0,0,1,
-        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
-        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,
-        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,0,1,1,0,1,1,1,1,
-        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1,
-        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,0,0,0,0,1,0,1,1,1,0,
-        1,1,1,1,1,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,
-        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
-        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,
-        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,1,0,1,1,1,0,1,1,1,0,0,0,1,
-        1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,0,0,0,1,
-        1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,
-        1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,1,1,1,1,
-
-        0,0,0,1,1,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,1,
-        0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,
-        1,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,1,1,0,0,0,
-        0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,
-        0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
-    };
+    Sprite text_sprite_sheet = create_text_sprite_sheet();
     
     // Alien Sprite two-frame animation
     SpriteAnimation* alien_animation = new SpriteAnimation;
