@@ -1,2 +1,5 @@
 .vscode/settings.json
 main.exe
+GLFW
+KHR
+glad
